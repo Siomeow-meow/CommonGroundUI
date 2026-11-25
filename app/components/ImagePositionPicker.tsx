@@ -43,6 +43,7 @@ export default function ImagePositionPicker({
   // Load the file into an object URL once.
   useEffect(() => {
     const url = URL.createObjectURL(file);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- object URLs must be created and revoked in an effect
     setImgUrl(url);
     return () => URL.revokeObjectURL(url);
   }, [file]);
@@ -78,12 +79,14 @@ export default function ImagePositionPicker({
   // Re-center whenever the image or frame first becomes measurable.
   useEffect(() => {
     if (!coverScale) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- re-centres after layout is measured
     setOffset(clampOffset((frame.w - dispW) / 2, (frame.h - dispH) / 2));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coverScale, frame.w, frame.h]);
 
   // Keep the image covering the frame whenever zoom changes.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- keeps the image inside the frame after zoom
     setOffset((o) => clampOffset(o.x, o.y));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoom]);

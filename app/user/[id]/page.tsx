@@ -12,12 +12,14 @@ import { getUserMemberships } from "@/app/lib/group";
 import {
   getUsersFriends,
   getUserFriendRequests,
+  getSentFriendRequests,
   sendFriendRequest,
   deleteFriend,
   acceptFriendRequest,
 } from "@/app/lib/friend";
 import User from "@/app/types/user";
 import Post from "@/app/types/post";
+import type { ApiConversation } from "@/app/types/api";
 import Friend from "@/app/types/friend";
 import Group from "@/app/types/group";
 import Link from "next/link";
@@ -45,7 +47,7 @@ export default function UserProfilePage() {
   const [friendRecordId, setFriendRecordId] = useState<number | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
   const [editingPost, setEditingPost] = useState<Post | null>(null);
-  const [existingConversation, setExistingConversation] = useState<any | null>(
+  const [existingConversation, setExistingConversation] = useState<ApiConversation | null>(
     null,
   );
 
@@ -53,7 +55,7 @@ export default function UserProfilePage() {
     if (!profileUser) return;
     (async () => {
       try {
-        const conv = await getConversation(profileUser.id);
+        const conv = await getDirectConversation(profileUser.id, await getToken());
         if (conv) setExistingConversation(conv);
       } catch (e) {
         console.error(e);
@@ -80,7 +82,7 @@ export default function UserProfilePage() {
       try {
         const token = await getToken();
         const [userData, postsData, groupsData] = await Promise.allSettled([
-          getUser(id),
+          getUser(id, token),
           getPostsByAuthor(id, token),
           getUserMemberships(id, token),
         ]);
@@ -93,9 +95,10 @@ export default function UserProfilePage() {
 
         // Determine friend status
         if (userId && !isOwnProfile) {
-          const [friendsRes, requestsRes] = await Promise.allSettled([
+          const [friendsRes, requestsRes, sentRes] = await Promise.allSettled([
             getUsersFriends(token),
             getUserFriendRequests(token),
+            getSentFriendRequests(token),
           ]);
 
           if (friendsRes.status === "fulfilled") {
@@ -110,18 +113,11 @@ export default function UserProfilePage() {
             }
           }
 
-          if (requestsRes.status === "fulfilled") {
-            const reqs: any[] = Array.isArray(requestsRes.value)
-              ? requestsRes.value
-              : [];
-            const sent = reqs.find(
-              (r) =>
-                (r.isSender || r.senderId === userId) && r.otherUser?.id === id,
-            );
-            const received = reqs.find(
-              (r) =>
-                !r.isSender && r.senderId !== userId && r.otherUser?.id === id,
-            );
+          {
+            const list = (res: PromiseSettledResult<Friend[]>) =>
+              res.status === "fulfilled" && Array.isArray(res.value) ? res.value : [];
+            const sent = list(sentRes).find((r) => r.otherUser?.id === id);
+            const received = list(requestsRes).find((r) => r.otherUser?.id === id);
             if (sent) {
               setFriendStatus("pending_sent");
               setFriendRecordId(sent.id);
@@ -139,12 +135,6 @@ export default function UserProfilePage() {
     })();
   }, [id, userId]);
 
-  async function getConversation(id: string) {
-    const token = await getToken();
-    const conversation = await getDirectConversation(id, token);
-    if (!conversation) return null;
-    return conversation;
-  }
 
   async function handleAddFriend() {
     if (!profileUser || actionLoading) return;
@@ -248,8 +238,8 @@ export default function UserProfilePage() {
       : profileUser.fName || profileUser.userName || "";
 
   const initials = (displayName || "??").slice(0, 2).toUpperCase();
-  const avatarSrc = safeImg((profileUser as any).profileImg);
-  const bannerSrc = safeImg((profileUser as any).bannerImg);
+  const avatarSrc = safeImg(profileUser.profileImg);
+  const bannerSrc = safeImg(profileUser.bannerImg);
 
   return (
     <PageShell title={`@${profileUser.userName}`}>
@@ -420,12 +410,12 @@ export default function UserProfilePage() {
             <p className="text-sm mt-0.5" style={{ color: "var(--fg-muted)" }}>
               @{profileUser.userName}
             </p>
-            {(profileUser as any).bio && (
+            {profileUser.bio && (
               <p
                 className="text-sm mt-2 leading-relaxed"
                 style={{ color: "var(--fg)" }}
               >
-                {(profileUser as any).bio}
+                {profileUser.bio}
               </p>
             )}
           </div>

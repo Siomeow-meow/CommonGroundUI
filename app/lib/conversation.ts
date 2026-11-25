@@ -1,11 +1,11 @@
-// All requests go through /api/proxy to avoid CORS — the proxy forwards to
-// https://probable-guacamole-alpha.vercel.app on the server side.
+// All requests go through /api/proxy to avoid CORS; the proxy forwards to
+// BACKEND_URL on the server side (see app/lib/backend.ts).
 const PROXY = "/api/proxy";
 
 // export type PatchMessageRequest = {
 // };
 
-export async function getConversations(token: any) {
+export async function getConversations(token: string | null | undefined) {
   const res = await fetch(`${PROXY}/conversation`, {
     method: "GET",
     headers: {
@@ -22,7 +22,7 @@ export async function getConversations(token: any) {
   return res.json();
 }
 
-export async function getConversation(id: number, token: any) {
+export async function getConversation(id: number, token: string | null | undefined) {
   const res = await fetch(`${PROXY}/conversation/${id}`, {
     method: "GET",
     headers: {
@@ -39,7 +39,7 @@ export async function getConversation(id: number, token: any) {
   return res.json();
 }
 
-export async function getUserConversations(id: string, token: any) {
+export async function getUserConversations(id: string, token: string | null | undefined) {
   const res = await fetch(`${PROXY}/conversation?participantId=${id}`, {
     method: "GET",
     headers: {
@@ -56,7 +56,7 @@ export async function getUserConversations(id: string, token: any) {
   return res.json();
 }
 
-export async function getDirectConversation(otherUserId: string, token: any) {
+export async function getDirectConversation(otherUserId: string, token: string | null | undefined) {
   const res = await fetch(
     `${PROXY}/conversation/direct?otherUserId=${otherUserId}`,
     {
@@ -80,7 +80,7 @@ export async function createGroupConversation(
   request: {
     participants: string[];
   },
-  token: any,
+  token: string | null | undefined,
 ) {
   try {
     if (request.participants.length < 3) {
@@ -103,10 +103,10 @@ export async function createGroupConversation(
   }
 }
 
-export async function getMessages(id: number, token: any) {
+export async function getMessages(id: number, token: string | null | undefined) {
   try {
     const res = await fetch(
-      `${PROXY}/conversation/${id}/message?conversationId=${id}`,
+      `${PROXY}/conversation/${id}/message`,
       {
         method: "GET",
         headers: {
@@ -115,6 +115,7 @@ export async function getMessages(id: number, token: any) {
         },
       },
     );
+    if (!res.ok) throw new Error(`Failed to load messages (${res.status})`);
     return res.json();
   } catch (err) {
     console.error("MESSAGE GET ERROR:", err);
@@ -125,7 +126,7 @@ export async function getMessages(id: number, token: any) {
 export async function deleteMessage(
   conversationId: number,
   messageId: number,
-  token: any,
+  token: string | null | undefined,
 ) {
   try {
     const res = await fetch(
@@ -145,7 +146,7 @@ export async function deleteMessage(
   }
 }
 
-export async function getGroupChatMembers(id: string, token: any) {
+export async function getGroupChatMembers(id: string, token: string | null | undefined) {
   try {
     const res = await fetch(`${PROXY}/group/${id}/member?groupId=${id}`, {
       method: "GET",
@@ -168,46 +169,51 @@ export async function getGroupChatMembers(id: string, token: any) {
   }
 }
 
-export async function kickChatMember(
-  conversationId: number,
-  memberId: string,
-  token: any,
-) {
-  try {
-    const res = await fetch(
-      `${PROXY}/conversation/${conversationId}/participant/${memberId}`,
-      {
-        method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-      },
-    );
-    return res.json();
-  } catch (err) {
-    console.error("KICK MEMBER ERROR:", err);
-    throw err;
-  }
-}
-
 export async function inviteChatMember(
   conversationId: number,
   userId: string,
-  token: any,
+  token: string | null | undefined,
 ) {
-  try {
-    const res = await fetch(`${PROXY}/conversation/${conversationId}/member`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ userId, role: "MEMBER" }),
-    });
-    return res.json();
-  } catch (err) {
-    console.error("INVITE MEMBER ERROR:", err);
-    throw err;
-  }
+  const res = await fetch(`${PROXY}/conversation/${conversationId}/participants`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ participantId: userId }),
+  });
+  if (!res.ok) throw new Error("Failed to add member");
+  return res.json();
+}
+
+/** Opens (or reuses) a direct chat, or starts a group chat for 2+ others. */
+export async function startConversation(participants: string[], token: string | null | undefined) {
+  const res = await fetch(`${PROXY}/conversation`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ participants }),
+  });
+  if (!res.ok) throw new Error(`Failed to start conversation (${res.status})`);
+  return res.json();
+}
+
+export async function postMessage(
+  conversationId: number,
+  content: string,
+  token: string | null | undefined,
+  parentId?: number,
+) {
+  const res = await fetch(`${PROXY}/conversation/${conversationId}/message`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ content, parentId }),
+  });
+  if (!res.ok) throw new Error(`Failed to send message (${res.status})`);
+  return res.json();
 }

@@ -5,17 +5,28 @@ import Link from "next/link";
 import PageShell from "@/app/components/PageShell";
 import Avatar from "@/app/components/Avatar";
 import { getUserFriendRequests, acceptFriendRequest, deleteFriend } from "@/app/lib/friend";
-import { getGroups, getUserMemberships } from "@/app/lib/group";
-import { getPosts } from "@/app/lib/post";
-import { getComments } from "@/app/lib/comment";
+import { deleteNotification, getNotifications, markNotificationsRead } from "@/app/lib/notification";
 import Friend from "@/app/types/friend";
-import Group from "@/app/types/group";
 
 // ── Notification union type ───────────────────────────────────────────────────
-type NotifKind = "friend_request" | "friend_accepted" | "post_like" | "comment" | "mention" | "group_post";
+type NotifKind = "friend_request" | "friend_accepted" | "post_like" | "comment" | "reply" | "mention" | "group_post" | "group_invite";
+const KINDS: NotifKind[] = ["friend_request", "friend_accepted", "post_like", "comment", "reply", "mention", "group_post", "group_invite"];
+
+// Shape returned by GET /notification on the backend.
+type ServerNotification = {
+  id: number;
+  type: string;
+  content: string;
+  link: string;
+  read: boolean;
+  createdAt: string;
+  actor: { id: string; userName: string; profileImg: string | null } | null;
+};
 
 type Notif = {
   id: string;
+  serverId: number;
+  groupLink?: string;
   kind: NotifKind;
   // Actor (person who did the action)
   actorName: string;
@@ -24,9 +35,6 @@ type Notif = {
   // Target (what was acted on)
   postId?: number;
   postTitle?: string;
-  groupId?: number;
-  groupName?: string;
-  groupImg?: string;
   excerpt?: string; // comment content preview
   // Meta
   time: Date;
@@ -53,6 +61,8 @@ function KindBadge({ kind }: { kind: NotifKind }) {
     friend_accepted: { emoji: "🤝", bg: "#22c55e" },
     post_like:       { emoji: "❤️", bg: "#ef4444" },
     comment:         { emoji: "💬", bg: "#3b82f6" },
+    reply:           { emoji: "↩", bg: "#0ea5e9" },
+    group_invite:    { emoji: "➕", bg: "#14b8a6" },
     mention:         { emoji: "@",  bg: "#f59e0b" },
     group_post:      { emoji: "📣", bg: "#8b5cf6" },
   };
@@ -78,123 +88,45 @@ export default function NotificationsPage() {
     (async () => {
       try {
         const token = await getToken();
-        const collected: Notif[] = [];
-
-        // ── Friend requests ──────────────────────────────────────────────────
-        try {
-          const data = await getUserFriendRequests(token);
-          const requests: Friend[] = Array.isArray(data) ? data : [];
-          requests
-            .filter((req: any) => !(req.isSender || req.senderId === userId))
-            .forEach((req) => {
-              collected.push({
-                id: `friend_req_${req.id}`,
-                kind: "friend_request",
-                actorName: req.otherUser?.userName ?? "Someone",
-                actorId: req.otherUser?.id,
-                actorImg: req.otherUser?.profileImg,
-                time: new Date(req.createdAt),
-                read: false,
-                friendMeta: req,
-              });
-            });
-        } catch {}
-
-        // ── Group posts (joined groups) ──────────────────────────────────────
-        try {
-          const [all, joined] = await Promise.allSettled([
-            getGroups(token),
-            getUserMemberships(userId, token),
-          ]);
-          const allGroups: Group[] = all.status === "fulfilled" && Array.isArray(all.value) ? all.value : [];
-          const joinedIds = new Set(
-            (joined.status === "fulfilled" && Array.isArray(joined.value) ? joined.value : []).map((g: Group) => g.id)
-          );
-          allGroups
-            .filter((g) => joinedIds.has(g.id) && g.id)
-            .forEach((g) => {
-              collected.push({
-                id: `group_post_${g.id}`,
-                kind: "group_post",
-                actorName: g.groupName ?? "Group",
-                groupId: g.id!,
-                groupName: g.groupName ?? "Group",
-                groupImg: g.groupImg ?? undefined,
-                time: new Date(),
-                read: false,
-              });
-            });
-        } catch {}
-
-        // ── Likes & comments on your posts ───────────────────────────────────
-        try {
-          const posts = await getPosts(token);
-          const myPosts = (Array.isArray(posts) ? posts : []).filter((p: any) => p.authorId === userId || p.userId === userId);
-
-          myPosts.forEach((post: any) => {
-            // Likes
-            if ((post.likesCount ?? 0) > 0) {
-              collected.push({
-                id: `like_${post.id}`,
-                kind: "post_like",
-                actorName: `${post.likesCount} ${post.likesCount === 1 ? "person" : "people"}`,
-                postId: post.id,
-                postTitle: post.title || post.content?.slice(0, 40),
-                time: new Date(post.createdAt),
-                read: false,
-              });
-            }
-          });
-
-          // Comments & mentions on your posts
-          try {
-            const comments = await getComments(token);
-            const allComments = Array.isArray(comments) ? comments : [];
-            const myPostIds = new Set(myPosts.map((p: any) => p.id));
-
-            allComments.forEach((c: any) => {
-              if (c.commenterId === userId) return; // own comment
-              const myPost = myPosts.find((p: any) => p.id === c.postId);
-
-              // Comment on your post
-              if (myPostIds.has(c.postId) && myPost) {
-                collected.push({
-                  id: `comment_${c.id}`,
-                  kind: "comment",
-                  actorName: c.commenter?.userName ?? "Someone",
-                  actorId: c.commenterId,
-                  actorImg: c.commenter?.profileImg,
-                  postId: c.postId,
-                  postTitle: myPost.title || myPost.content?.slice(0, 40),
-                  excerpt: c.content?.slice(0, 80),
-                  time: new Date(c.createdAt),
-                  read: false,
-                });
-              }
-
-              // @mention of you anywhere
-              if (
-                c.commenterId !== userId &&
-                c.content?.toLowerCase().includes(`@${userId}`) === false && // avoid userId match
-                c.content?.includes(`@`) &&
-                c.commenter?.userName
-              ) {
-                // Check if any comment mentions your username (if we can get it)
-                // We do this best-effort; full mention support requires server-side data
-              }
-            });
-          } catch {}
-        } catch {}
-
-        // Sort newest first
-        collected.sort((a, b) => b.time.getTime() - a.time.getTime());
-        setNotifs(collected);
+        const [data, requests] = await Promise.all([
+          getNotifications(token),
+          getUserFriendRequests(token).catch(() => []),
+        ]);
+        const pending: Friend[] = Array.isArray(requests) ? requests : [];
+        const list: ServerNotification[] = Array.isArray(data?.notifications)
+          ? data.notifications
+          : [];
+        setNotifs(
+          list.map((n) => {
+            const postMatch = /^\/post\/(\d+)/.exec(n.link ?? "");
+            const kind = (KINDS.includes(n.type as NotifKind) ? n.type : "comment") as NotifKind;
+            return {
+              id: String(n.id),
+              serverId: n.id,
+              kind,
+              actorName: n.actor?.userName ?? "Someone",
+              actorId: n.actor?.id,
+              actorImg: n.actor?.profileImg ?? undefined,
+              postId: postMatch ? Number(postMatch[1]) : undefined,
+              postTitle: kind === "group_post" ? n.content : undefined,
+              excerpt: ["comment", "reply", "mention", "group_invite"].includes(kind) ? n.content : undefined,
+              groupLink: kind === "group_invite" ? n.link : undefined,
+              time: new Date(n.createdAt),
+              read: n.read,
+              friendMeta:
+                kind === "friend_request"
+                  ? pending.find((r) => r.otherUser?.id === n.actor?.id)
+                  : undefined,
+            };
+          }),
+        );
       } catch (e) {
         console.error(e);
       } finally {
         setLoading(false);
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
   async function handleAccept(notif: Notif) {
@@ -202,6 +134,7 @@ export default function NotificationsPage() {
     try {
       const token = await getToken();
       await acceptFriendRequest({ receiverId: userId, status: "ACCEPTED" }, notif.friendMeta.id, token);
+      await markNotificationsRead({ ids: [notif.serverId] }, token);
       setNotifs((prev) =>
         prev.map((n) => n.id === notif.id ? { ...n, kind: "friend_accepted" as NotifKind, read: true } : n)
       );
@@ -213,16 +146,24 @@ export default function NotificationsPage() {
     try {
       const token = await getToken();
       await deleteFriend(notif.friendMeta.id, token);
+      await deleteNotification(notif.serverId, token);
     } catch {}
     setNotifs((prev) => prev.filter((n) => n.id !== notif.id));
   }
 
-  function markRead(id: string) {
-    setNotifs((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n));
+  async function markRead(notif: Notif) {
+    if (notif.read) return;
+    setNotifs((prev) => prev.map((n) => n.id === notif.id ? { ...n, read: true } : n));
+    try {
+      await markNotificationsRead({ ids: [notif.serverId] }, await getToken());
+    } catch (e) { console.error(e); }
   }
 
-  function markAllRead() {
+  async function markAllRead() {
     setNotifs((prev) => prev.map((n) => ({ ...n, read: true })));
+    try {
+      await markNotificationsRead({ all: true }, await getToken());
+    } catch (e) { console.error(e); }
   }
 
   const FILTER_TABS: { key: "all" | "friend_request" | "mention"; label: string }[] = [
@@ -288,7 +229,7 @@ export default function NotificationsPage() {
             <NotifRow
               key={notif.id}
               notif={notif}
-              onRead={() => markRead(notif.id)}
+              onRead={() => markRead(notif)}
               onAccept={() => handleAccept(notif)}
               onDecline={() => handleDecline(notif)}
             />
@@ -311,15 +252,6 @@ function NotifRow({
   onAccept: () => void;
   onDecline: () => void;
 }) {
-  const isGroupPost = notif.kind === "group_post";
-  const linkHref = isGroupPost
-    ? `/groups/${notif.groupId}`
-    : notif.postId
-    ? `/post/${notif.postId}`
-    : notif.actorId
-    ? `/user/${notif.actorId}`
-    : undefined;
-
   const inner = (
     <div
       onClick={onRead}
@@ -331,27 +263,25 @@ function NotifRow({
     >
       {/* Avatar / group icon */}
       <div className="relative flex-shrink-0">
-        {isGroupPost ? (
-          <div
-            className="w-9 h-9 rounded-xl flex items-center justify-center text-xs font-bold overflow-hidden"
-            style={{ background: "var(--primary-subtle)", color: "var(--primary)" }}
-          >
-            {notif.groupImg
-              ? <img src={notif.groupImg} alt="" className="w-full h-full object-cover" />
-              : (notif.groupName ?? "").slice(0, 2).toUpperCase()}
-          </div>
-        ) : (
-          <Avatar userName={notif.actorName} profileImg={notif.actorImg} size="md" />
-        )}
+        <Avatar userName={notif.actorName} profileImg={notif.actorImg} size="md" />
         <KindBadge kind={notif.kind} />
       </div>
 
       {/* Content */}
       <div className="flex-1 min-w-0">
         <p className="text-sm" style={{ color: "var(--fg)" }}>
-          {isGroupPost ? (
+          {notif.kind === "group_post" ? (
             <>
-              <span className="font-semibold">{notif.groupName}</span> has new posts
+              <span className="font-semibold">{notif.actorId ? `@${notif.actorName}` : "Someone"}</span> posted in your group
+              {notif.postTitle && <span style={{ color: "var(--fg-muted)" }}> — {notif.postTitle}</span>}
+            </>
+          ) : notif.kind === "group_invite" ? (
+            <>
+              <span className="font-semibold">@{notif.actorName}</span> {notif.excerpt}
+            </>
+          ) : notif.kind === "reply" ? (
+            <>
+              <span className="font-semibold">@{notif.actorName}</span> replied to your comment
             </>
           ) : notif.kind === "post_like" ? (
             <>
@@ -380,9 +310,9 @@ function NotifRow({
         </p>
 
         {/* Comment excerpt */}
-        {notif.excerpt && (
+        {notif.excerpt && notif.kind !== "group_invite" && (
           <p className="text-xs mt-0.5 line-clamp-2 italic" style={{ color: "var(--fg-muted)" }}>
-            "{notif.excerpt}"
+            &ldquo;{notif.excerpt}&rdquo;
           </p>
         )}
 
@@ -410,8 +340,19 @@ function NotifRow({
           </div>
         )}
 
+        {notif.groupLink && (
+          <Link
+            href={notif.groupLink}
+            onClick={(e) => e.stopPropagation()}
+            className="inline-block text-xs mt-1.5 hover:underline"
+            style={{ color: "var(--primary)" }}
+          >
+            View group →
+          </Link>
+        )}
+
         {/* Post link */}
-        {(notif.kind === "comment" || notif.kind === "post_like" || notif.kind === "mention") && notif.postId && (
+        {(notif.kind === "comment" || notif.kind === "reply" || notif.kind === "post_like" || notif.kind === "mention" || notif.kind === "group_post") && notif.postId && (
           <Link
             href={`/post/${notif.postId}`}
             onClick={(e) => e.stopPropagation()}
@@ -430,9 +371,5 @@ function NotifRow({
     </div>
   );
 
-  return linkHref && notif.kind === "group_post" ? (
-    <Link href={linkHref} style={{ display: "block" }}>{inner}</Link>
-  ) : (
-    inner
-  );
+  return inner;
 }

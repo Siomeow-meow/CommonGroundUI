@@ -1,6 +1,6 @@
 const PROXY = "/api/proxy";
 
-export async function getComments(token: any) {
+export async function getComments(token: string | null | undefined) {
   const res = await fetch(`${PROXY}/comment`, {
     method: "GET",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -9,7 +9,7 @@ export async function getComments(token: any) {
   return res.json();
 }
 
-export async function getComment(id: string, token: any) {
+export async function getComment(id: string, token: string | null | undefined) {
   const res = await fetch(`${PROXY}/comment/${id}`, {
     method: "GET",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -20,7 +20,7 @@ export async function getComment(id: string, token: any) {
 
 export async function postComment(
   request: { content: string; commenterId: string; postId: number },
-  token: any,
+  token: string | null | undefined,
 ) {
   try {
     const res = await fetch(`${PROXY}/comment`, {
@@ -35,7 +35,7 @@ export async function postComment(
   }
 }
 
-export async function getPostComments(id: string, token: any) {
+export async function getPostComments(id: string, token: string | null | undefined) {
   const res = await fetch(`${PROXY}/comment?postId=${id}`, {
     method: "GET",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -44,7 +44,7 @@ export async function getPostComments(id: string, token: any) {
   return res.json();
 }
 
-export async function deleteComment(id: number, token: any) {
+export async function deleteComment(id: number, token: string | null | undefined) {
   try {
     const res = await fetch(`${PROXY}/comment/${id}`, {
       method: "DELETE",
@@ -63,7 +63,7 @@ export async function deleteComment(id: number, token: any) {
 // itself the next time the comment tree was fetched from the server.
 export async function likeComment(
   request: { type: "LIKE" | "UNLIKE" },
-  token: any,
+  token: string | null | undefined,
   id: number,
 ) {
   const res = await fetch(`${PROXY}/comment/${id}/likes`, {
@@ -78,7 +78,7 @@ export async function likeComment(
 export async function patchComment(
   request: { content: string },
   id: string,
-  token: any,
+  token: string | null | undefined,
 ) {
   try {
     const res = await fetch(`${PROXY}/comment/${id}`, {

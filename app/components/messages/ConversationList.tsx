@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import Avatar from "@/app/components/Avatar";
-import { isUnread } from "@/app/lib/chatPrefs";
 
 export type ConversationSummary = {
   id: string | number;
@@ -16,6 +15,7 @@ export type ConversationSummary = {
   lastMessage?: string;
   lastMessageAt?: string;
   lastMessageSenderId?: string;
+  unreadCount?: number;
 };
 
 type FilterTab = "all" | "unread";
@@ -141,7 +141,7 @@ export default function ConversationList({
     if (typeof window !== "undefined" && window.history.length > 1) {
       router.back();
     } else {
-      router.push("/feed");
+      router.push("/");
     }
   }
 
@@ -153,9 +153,7 @@ export default function ConversationList({
 
   const visible = useMemo(() => {
     if (tab === "unread" && userId) {
-      return searched.filter((c) =>
-        isUnread(userId, String(c.id), c.lastMessageAt, c.lastMessageSenderId),
-      );
+      return searched.filter((c) => (c.unreadCount ?? 0) > 0);
     }
     return searched;
   }, [searched, tab, userId]);
@@ -241,7 +239,7 @@ export default function ConversationList({
         {error ? (
           <div className="px-3 py-6 text-center">
             <p className="text-sm font-medium mb-1" style={{ color: "var(--fg)" }}>
-              Couldn't load your chats
+              Couldn&apos;t load your chats
             </p>
             <p className="text-xs" style={{ color: "var(--fg-muted)" }}>
               {error}
@@ -265,7 +263,7 @@ export default function ConversationList({
               key={c.id}
               c={c}
               active={activeUserId === c.otherUserId}
-              unread={!!userId && isUnread(userId, String(c.id), c.lastMessageAt, c.lastMessageSenderId)}
+              unread={(c.unreadCount ?? 0) > 0}
             />
           ))
         )}

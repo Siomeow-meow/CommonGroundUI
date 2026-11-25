@@ -55,6 +55,7 @@ export default function MobileNav() {
 
   // Close the drawer whenever the route changes.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- closing the drawer is a response to navigation
     setOpen(false);
   }, [pathname]);
 

@@ -420,7 +420,7 @@ export default function GroupsPage() {
             className="text-sm font-medium"
             style={{ color: "var(--fg-muted)" }}
           >
-            You haven't joined any groups
+            You haven&apos;t joined any groups
           </p>
           <p
             className="text-xs mt-1 mb-4"

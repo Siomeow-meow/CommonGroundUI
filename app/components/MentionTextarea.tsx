@@ -45,6 +45,7 @@ export default function MentionTextarea({
 
   useEffect(() => {
     if (scopedUsers) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- mirrors the scopedUsers prop
       setUsers(scopedUsers);
       return;
     }

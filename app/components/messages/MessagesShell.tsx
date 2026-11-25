@@ -33,6 +33,7 @@ export default function MessagesShell({
 
   // Keep the locally-tracked conversationId in sync if the URL gives us one.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- resets local state when the URL changes
     setConversationId(initialConversationId);
   }, [initialConversationId, activeOtherUserId]);
 
@@ -69,6 +70,7 @@ export default function MessagesShell({
     }
 
     if (!activeOtherUserId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- clears the panel when no chat is selected
       setOtherUser(null);
       return;
     }

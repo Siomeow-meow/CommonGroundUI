@@ -45,6 +45,7 @@ export type DisplayIdentity = {
  */
 export function getDisplayIdentity(post: {
   isAnonymous?: boolean;
+  anonymousId?: string | null;
   authorId?: string;
   userId?: string;
   groupId?: number | null;
@@ -57,7 +58,9 @@ export function getDisplayIdentity(post: {
       isAnonymous: false,
     };
   }
-  const id = post.authorId ?? post.userId;
+  // The server sends the same anonymousId to everyone (the author included)
+  // and never reveals the real authorId to other users.
+  const id = post.anonymousId ?? post.authorId ?? post.userId;
   return {
     userName: getGuestLabel(id, post.groupId),
     profileImg: undefined,

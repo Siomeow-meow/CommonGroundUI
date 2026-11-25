@@ -5,6 +5,8 @@ import { useAuth } from "@clerk/nextjs";
 import { getUserConversations } from "./conversation";
 import { getFriends } from "./friend";
 import type { ConversationSummary } from "@/app/components/messages/ConversationList";
+import type { ApiConversation, ApiMessage } from "@/app/types/api";
+import type Friend from "@/app/types/friend";
 
 // There's no push layer for the conversation *list* itself (only
 // individual messages arrive over the websocket), so "real-time" here
@@ -59,16 +61,16 @@ export function useConversations() {
         const list: ConversationSummary[] = [];
 
         (Array.isArray(rawConversations) ? rawConversations : [])
-          .filter((conv: any) => !conv.isGroup)
-          .filter((conv: any) =>
+          .filter((conv: ApiConversation) => !conv.isGroup)
+          .filter((conv: ApiConversation) =>
             Array.isArray(conv.participants)
-              ? conv.participants.some((p: any) => p.participantId === userId)
+              ? conv.participants.some((p) => p.participantId === userId)
               : true,
           )
-          .forEach((conv: any) => {
-            const other = conv.participants?.find((p: any) => p.participantId !== userId);
+          .forEach((conv: ApiConversation) => {
+            const other = conv.participants?.find((p) => p.participantId !== userId);
             if (!other) return;
-            const msgs: any[] = Array.isArray(conv.messages) ? conv.messages : [];
+            const msgs: ApiMessage[] = Array.isArray(conv.messages) ? conv.messages : [];
             const last = msgs.length
               ? [...msgs].sort(
                   (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
@@ -79,18 +81,19 @@ export function useConversations() {
               conversationId: conv.id,
               otherUserId: other.participantId ?? other.participant?.id,
               userName: other.participant?.userName ?? "Unknown",
-              profileImg: other.participant?.profileImg,
+              profileImg: other.participant?.profileImg ?? undefined,
               lastMessage: last?.content,
               lastMessageAt: last?.createdAt,
               lastMessageSenderId: last?.senderId,
+              unreadCount: typeof conv.unreadCount === "number" ? conv.unreadCount : 0,
             });
           });
 
         // Friends you haven't messaged yet don't have a Conversation row at
         // all, so they'd otherwise be invisible here — pull them in too.
         (Array.isArray(friendRelations) ? friendRelations : [])
-          .filter((f: any) => f.status === "ACCEPTED")
-          .forEach((f: any) => {
+          .filter((f: Friend) => f.status === "ACCEPTED")
+          .forEach((f: Friend) => {
             const other = f.otherUser;
             if (!other?.id) return;
             if (list.some((c) => c.otherUserId === other.id)) return;
@@ -127,6 +130,7 @@ export function useConversations() {
 
   useEffect(() => {
     mountedRef.current = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetches data; state is set after the request returns
     refresh();
     const interval = setInterval(() => refresh(true), POLL_MS);
     return () => {

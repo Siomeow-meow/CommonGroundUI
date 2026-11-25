@@ -18,4 +18,8 @@ export default interface Post {
   likesCount: number;
   isLiked: boolean;
   commentsCount?: number;
+  isSaved?: boolean;
+  isOwner?: boolean;
+  /** Same for every viewer; used for the "GuestN" label on anonymous posts. */
+  anonymousId?: string | null;
 }

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import PageShell from "@/app/components/PageShell";
 import Avatar from "@/app/components/Avatar";
@@ -8,6 +8,7 @@ import {
   sendFriendRequest,
   getUsersFriends,
   getUserFriendRequests,
+  getSentFriendRequests,
   acceptFriendRequest,
   deleteFriend,
 } from "@/app/lib/friend";
@@ -18,28 +19,6 @@ import Friend from "@/app/types/friend";
 import Group from "@/app/types/group";
 
 type Tab = "people" | "groups";
-
-// ── localStorage helpers for friend state ────────────────────────────────────
-function lsKey(userId: string) {
-  return `friend_state_${userId}`;
-}
-type PersistedFriendState = {
-  friendIds: string[];
-  pendingSent: [string, number][]; // [otherUserId, requestRecordId]
-};
-function loadFriendState(userId: string): PersistedFriendState {
-  try {
-    const raw = localStorage.getItem(lsKey(userId));
-    return raw ? JSON.parse(raw) : { friendIds: [], pendingSent: [] };
-  } catch {
-    return { friendIds: [], pendingSent: [] };
-  }
-}
-function saveFriendState(userId: string, state: PersistedFriendState) {
-  try {
-    localStorage.setItem(lsKey(userId), JSON.stringify(state));
-  } catch {}
-}
 
 export default function ExplorePage() {
   const { getToken, userId } = useAuth();
@@ -62,37 +41,28 @@ export default function ExplorePage() {
   );
   const [joiningId, setJoiningId] = useState<number | null>(null);
 
-  const persistFriendState = useCallback(
-    (fIds: Set<string>, pSent: Map<string, number>) => {
-      if (!userId) return;
-      saveFriendState(userId, {
-        friendIds: [...fIds],
-        pendingSent: [...pSent.entries()],
-      });
-    },
-    [userId],
-  );
-
   useEffect(() => {
     if (!userId) return;
-
-    const cached = loadFriendState(userId);
-    if (cached.friendIds.length) setFriendIds(new Set(cached.friendIds));
-    if (cached.pendingSent.length) setPendingSent(new Map(cached.pendingSent));
 
     (async () => {
       try {
         const token = await getToken();
-        const [u, f, fr, g, m] = await Promise.allSettled([
+        const [u, f, fr, sent, g, m] = await Promise.allSettled([
           getUsers(token),
           getUsersFriends(token).catch(() => []),
           getUserFriendRequests(token).catch(() => []),
+          getSentFriendRequests(token).catch(() => []),
           getGroups(token),
           getUserMemberships(userId, token).catch(() => []),
         ]);
 
-        let newFriendIds = new Set<string>(cached.friendIds);
-        let newPendingSent = new Map<string, number>(cached.pendingSent);
+        let newFriendIds = new Set<string>();
+        const newPendingSent = new Map<string, number>();
+        if (sent.status === "fulfilled") {
+          (Array.isArray(sent.value) ? sent.value : []).forEach((req: Friend) => {
+            if (req.otherUser?.id) newPendingSent.set(req.otherUser.id, req.id);
+          });
+        }
 
         if (u.status === "fulfilled") {
           const all = Array.isArray(u.value) ? u.value : [];
@@ -110,25 +80,9 @@ export default function ExplorePage() {
 
         if (fr.status === "fulfilled") {
           const incoming = new Map<string, Friend>();
-          const outgoing = new Map<string, number>();
-          (Array.isArray(fr.value) ? fr.value : []).forEach((req: any) => {
-            if (req.isSender || req.senderId === userId || req.userId === userId) {
-              if (req.otherUser?.id) outgoing.set(req.otherUser.id, req.id);
-            } else {
-              if (req.otherUser?.id) incoming.set(req.otherUser.id, req);
-            }
+          (Array.isArray(fr.value) ? fr.value : []).forEach((req: Friend) => {
+            if (req.otherUser?.id) incoming.set(req.otherUser.id, req);
           });
-          // The requests endpoint may only return requests waiting on *you*
-          // to act on (incoming) and never echo back requests you sent — in
-          // that case `outgoing` comes back empty on every load, and fully
-          // replacing pendingSent with it wipes out the "Requested" state
-          // that was correctly saved locally right after a successful send.
-          // That's exactly the bug: press Add, it flips to Requested, then
-          // refresh/navigate and it's back to Add. Merging instead of
-          // replacing keeps a confirmed sent request marked as pending
-          // unless the server tells us it's no longer pending (see cleanup
-          // below).
-          newPendingSent = new Map([...newPendingSent, ...outgoing]);
           setIncomingRequests(incoming);
         }
 
@@ -141,8 +95,6 @@ export default function ExplorePage() {
           }
         }
         setPendingSent(newPendingSent);
-
-        persistFriendState(newFriendIds, newPendingSent);
 
         if (g.status === "fulfilled")
           setAllGroups(Array.isArray(g.value) ? g.value : []);
@@ -164,7 +116,6 @@ export default function ExplorePage() {
   async function handleAddFriend(user: User) {
     setPendingSent((prev) => {
       const next = new Map([...prev, [user.id, -1]]);
-      persistFriendState(friendIds, next);
       return next;
     });
     try {
@@ -176,7 +127,6 @@ export default function ExplorePage() {
       const reqId = result?.id ?? result?.friendId ?? -1;
       setPendingSent((prev) => {
         const next = new Map([...prev, [user.id, reqId]]);
-        persistFriendState(friendIds, next);
         return next;
       });
     } catch (e) {
@@ -184,7 +134,6 @@ export default function ExplorePage() {
       setPendingSent((prev) => {
         const next = new Map(prev);
         next.delete(user.id);
-        persistFriendState(friendIds, next);
         return next;
       });
     }
@@ -196,7 +145,6 @@ export default function ExplorePage() {
     setPendingSent((prev) => {
       const next = new Map(prev);
       next.delete(user.id);
-      persistFriendState(friendIds, next);
       return next;
     });
     if (reqId == null || reqId === -1) return;
@@ -208,7 +156,6 @@ export default function ExplorePage() {
       // Only rollback on network error, not on user-initiated cancel
       setPendingSent((prev) => {
         const next = new Map([...prev, [user.id, reqId]]);
-        persistFriendState(friendIds, next);
         return next;
       });
     }
@@ -226,7 +173,6 @@ export default function ExplorePage() {
       );
       setFriendIds((prev) => {
         const next = new Set([...prev, user.id]);
-        persistFriendState(next, pendingSent);
         return next;
       });
       setIncomingRequests((prev) => {

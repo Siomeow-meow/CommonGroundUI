@@ -1,4 +1,5 @@
 import { getGroup, getGroups } from "@/app/lib/group";
+import type Group from "@/app/types/group";
 
 // Module-level cache so every PostCard on the page shares one fetch of the
 // group list instead of each post card re-fetching it.
@@ -17,9 +18,9 @@ export async function loadGroupDirectory(
   if (cachedMap) return cachedMap;
   if (!inflight) {
     inflight = getGroups(token)
-      .then((raw: any) => {
+      .then((raw: Group[]) => {
         const map = new Map<number, string>();
-        (Array.isArray(raw) ? raw : []).forEach((g: any) => {
+        (Array.isArray(raw) ? raw : []).forEach((g: Group) => {
           if (g?.id != null && g?.groupName) map.set(g.id, g.groupName);
         });
         cachedMap = map;
@@ -47,7 +48,7 @@ export async function getGroupName(
 
   if (!singleInflight.has(groupId)) {
     const p = getGroup(String(groupId), token)
-      .then((g: any) => {
+      .then((g: Group | null) => {
         const name = g?.groupName ?? null;
         if (name) {
           if (!cachedMap) cachedMap = new Map();

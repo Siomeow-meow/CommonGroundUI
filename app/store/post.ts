@@ -1,9 +1,10 @@
 import { createSlice } from "@reduxjs/toolkit";
+import type Post from "@/app/types/post";
 
 const postsSlice = createSlice({
   name: "posts",
   initialState: {
-    posts: [] as any[],
+    posts: [] as Post[],
   },
   reducers: {
     setPosts: (state, action) => {
