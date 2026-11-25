@@ -3,7 +3,8 @@ export default interface User {
   email: string;
   userName: string;
   profileImg: string;
-  banner: string;
+  banner?: string;
+  bannerImg?: string | null;
   fName: string;
   lName: string;
   bio: string;

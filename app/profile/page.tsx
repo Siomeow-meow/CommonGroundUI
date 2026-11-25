@@ -1,7 +1,6 @@
 "use client";
-import { clerkClient } from "@clerk/nextjs/server";
 import { useEffect, useRef, useState } from "react";
-import { useAuth, useUser } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
 import { getUser, patchUser, PatchUserRequest } from "@/app/lib/user";
 import { getPostsByAuthor, deletePost } from "@/app/lib/post";
 import { getUsersFriends, deleteFriend } from "@/app/lib/friend";
@@ -304,7 +303,7 @@ export default function ProfilePage() {
         const token = await getToken();
         const [userData, postsData, friendsData, groupsData] =
           await Promise.allSettled([
-            getUser(userId),
+            getUser(userId, token),
             getPostsByAuthor(userId, token),
             getUsersFriends(token),
             getUserMemberships(userId, token),
@@ -372,7 +371,7 @@ export default function ProfilePage() {
       if (form.lName !== undefined) payload.lName = form.lName;
       if (form.bio !== undefined) payload.bio = form.bio;
       if (form.userName !== undefined)
-        (payload as any).userName = form.userName;
+        payload.userName = form.userName;
       if (form.profileImg) {
         const uploadedImage = await uploadImage({
           file: form.profileImg,
@@ -399,8 +398,8 @@ export default function ProfilePage() {
       setEditing(false);
       setProfilePreview(null);
       setBannerPreview(null);
-    } catch (e: any) {
-      setSaveError(e?.message ?? "Failed to save. Please try again.");
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : "Failed to save. Please try again.");
     } finally {
       setSaving(false);
     }
@@ -427,13 +426,13 @@ export default function ProfilePage() {
   const initials = (displayName || "??").slice(0, 2).toUpperCase();
 
   const rawAvatarSrc = editing
-    ? profilePreview || (user as any)?.profileImg || user?.profileImg || null
-    : (user as any)?.profileImg || user?.profileImg || null;
+    ? profilePreview || user?.profileImg || null
+    : user?.profileImg || null;
   const avatarSrc = safeImg(rawAvatarSrc);
 
   const rawBannerSrc = editing
-    ? bannerPreview || (user as any)?.bannerImg || null
-    : (user as any)?.bannerImg || null;
+    ? bannerPreview || user?.bannerImg || null
+    : user?.bannerImg || null;
   const bannerSrc = safeImg(rawBannerSrc);
 
   return (

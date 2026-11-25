@@ -43,7 +43,10 @@ export default function Home() {
     }
   }, [getToken]);
 
-  useEffect(() => { fetchPosts(); }, [fetchPosts]);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetches data; state is set after the request returns
+    fetchPosts();
+  }, [fetchPosts]);
 
   if (!userId) {
     return (

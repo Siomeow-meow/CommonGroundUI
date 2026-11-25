@@ -4,7 +4,7 @@ import Post from "@/app/types/post";
 import Comment from "@/app/types/comment";
 import Avatar from "./Avatar";
 import MentionText from "./MentionText";
-import { likePost } from "@/app/lib/post";
+import { likePost, toggleSavePost } from "@/app/lib/post";
 import { getPostComments, postComment, patchComment, deleteComment, likeComment } from "@/app/lib/comment";
 import { loadGroupDirectory, getGroupName } from "@/app/lib/groupDirectory";
 import { getGroupMembers } from "@/app/lib/group";
@@ -61,20 +61,6 @@ function updateCommentInTree(
       return { ...c, replies: updateCommentInTree(c.replies || [], id, updater) };
     })
     .filter((c): c is Comment => c !== null);
-}
-
-function getSavedIds(userId: string): Set<number> {
-  try {
-    const raw = localStorage.getItem(`saved_posts_${userId}`);
-    return raw ? new Set(JSON.parse(raw)) : new Set();
-  } catch {
-    return new Set();
-  }
-}
-function setSavedIds(userId: string, ids: Set<number>) {
-  try {
-    localStorage.setItem(`saved_posts_${userId}`, JSON.stringify([...ids]));
-  } catch {}
 }
 
 // ── Share modal ───────────────────────────────────────────────────────────────
@@ -669,13 +655,13 @@ function CommentSection({
         const token = await getToken();
         const [data, userRes] = await Promise.all([
           getPostComments(String(post.id), token),
-          getUser(userId),
+          getUser(userId, token),
         ]);
         setUser(userRes);
         const arr = Array.isArray(data) ? data : [];
         setComments(arr);
-      } catch (e: any) {
-        if (!e?.message?.includes("not found")) console.error(e);
+      } catch (e) {
+        if (!(e instanceof Error && e.message.includes("not found"))) console.error(e);
         setComments([]);
       } finally {
         setLoading(false);
@@ -1046,7 +1032,7 @@ function ImageLightbox({
   onCommentCountChange: (n: number) => void;
 }) {
   const [index, setIndex] = useState(initialIndex);
-  const identity = getDisplayIdentity(post as any);
+  const identity = getDisplayIdentity(post);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -1219,15 +1205,15 @@ export default function PostCard({
   const [showComments, setShowComments] = useState(false);
   const [commentCount, setCommentCount] = useState(post.commentsCount ?? 0);
   const [showShare, setShowShare] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [saved, setSaved] = useState(!!post.isSaved);
   const [showDotMenu, setShowDotMenu] = useState(false);
   const dotMenuRef = useRef<HTMLDivElement>(null);
   const [groupName, setGroupName] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
-  const isOwner = userId && (post as any).authorId === userId;
+  const isOwner = !!userId && post.authorId === userId;
   const canShowActions = showOwnerActions && isOwner;
-  const identity = getDisplayIdentity(post as any);
+  const identity = getDisplayIdentity(post);
 
   useEffect(() => {
     if (!post.groupId) return;
@@ -1246,11 +1232,6 @@ export default function PostCard({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [post.groupId]);
-
-  useEffect(() => {
-    if (!userId) return;
-    setSaved(getSavedIds(userId).has(post.id));
-  }, [userId, post.id]);
 
   // Comment count previously only became accurate once the user opened the
   // comment panel (it relied on post.commentsCount, which the feed API
@@ -1301,13 +1282,18 @@ export default function PostCard({
     }
   }
 
-  function handleSave() {
+  async function handleSave() {
     if (!userId) return;
-    const ids = getSavedIds(userId);
-    if (saved) ids.delete(post.id);
-    else ids.add(post.id);
-    setSavedIds(userId, ids);
-    setSaved(!saved);
+    const previous = saved;
+    setSaved(!previous);
+    try {
+      const token = await getToken();
+      const res = await toggleSavePost(post.id, token);
+      setSaved(!!res.saved);
+    } catch (e) {
+      console.error(e);
+      setSaved(previous);
+    }
   }
 
   // Action button style
@@ -1347,7 +1333,7 @@ export default function PostCard({
           {identity.isAnonymous ? (
             <Avatar userName={identity.userName} profileImg={identity.profileImg} />
           ) : (
-            <a href={`/user/${(post as any).authorId}`}>
+            <a href={`/user/${post.authorId}`}>
               <Avatar
                 userName={identity.userName}
                 profileImg={identity.profileImg}
@@ -1365,7 +1351,7 @@ export default function PostCard({
                 </span>
               ) : (
                 <a
-                  href={`/user/${(post as any).authorId}`}
+                  href={`/user/${post.authorId}`}
                   className="text-sm font-semibold hover:underline"
                   style={{ color: "var(--fg)" }}
                 >

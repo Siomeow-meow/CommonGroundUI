@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useAuth } from "@clerk/nextjs";
 import Avatar from "@/app/components/Avatar";
 import { useMessages } from "@/app/lib/useMessages";
-import { useRouter } from "next/router";
 
 function formatTime(iso: string | Date) {
   try {

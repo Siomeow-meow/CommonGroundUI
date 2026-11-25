@@ -1,33 +1,39 @@
-import { currentUser } from "@clerk/nextjs/server";
+import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
-import { getUser, postUser } from "@/app/lib/user";
+import { BACKEND_URL } from "@/app/lib/backend";
 
+/**
+ * Runs once after sign-up / sign-in: makes sure the user has a profile in
+ * the CGserver database. The backend takes the id, email and name from the
+ * Clerk session and picks a free username, so this only has to call it.
+ */
 export default async function OnboardingPage() {
-  const user = await currentUser();
+  const { userId, getToken } = await auth();
+  if (!userId) redirect("/auth/sign-in");
 
-  if (!user) {
-    redirect("/auth/sign-in");
-  }
+  const token = await getToken();
+  const res = await fetch(`${BACKEND_URL}/api/user`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: "{}",
+    cache: "no-store",
+  });
 
-  const existingUser = await getUser(user.id);
-
-  if (!existingUser) {
-    await postUser({
-      id: user.id,
-      userName:
-        user.username || `${user.firstName ?? ""} ${user.lastName ?? ""}`,
-      email: user.emailAddresses[0]?.emailAddress,
-      fName: user.firstName,
-      lName: user.lastName,
-      profileImg: user.imageUrl,
-    });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    return (
+      <div className="flex flex-col justify-center items-center h-screen gap-3 p-6 text-center">
+        <p className="font-semibold">We couldn&apos;t finish setting up your account.</p>
+        <p className="text-sm opacity-70">{body?.error ?? `Server error (${res.status})`}</p>
+        <a href="/auth/onboarding" className="underline text-sm">
+          Try again
+        </a>
+      </div>
+    );
   }
 
   redirect("/");
-
-  return (
-    <div className="flex justify-center items-center h-screen">
-      <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-500"></div>
-    </div>
-  );
 }

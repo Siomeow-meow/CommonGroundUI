@@ -4,7 +4,7 @@ import { useAuth } from "@clerk/nextjs";
 import MentionTextarea from "@/app/components/MentionTextarea";
 import { patchPost } from "@/app/lib/post";
 import { getGroup, getGroupMembers } from "@/app/lib/group";
-import { mapMembersToMentionUsers } from "@/app/lib/mentionDirectory";
+import { mapMembersToMentionUsers, type MentionUser } from "@/app/lib/mentionDirectory";
 import { uploadImage } from "@/app/util/storage";
 import ImageAttachmentStrip from "@/app/components/ImageAttachmentStrip";
 import Switch from "@/app/components/Switch";
@@ -54,7 +54,7 @@ export default function EditPostModal({
   const [newImages, setNewImages] = useState<File[]>([]);
   const [tags, setTags] = useState<string[]>(post.tags ?? []);
   const [availableTags, setAvailableTags] = useState<string[] | null>(null);
-  const [scopedUsers, setScopedUsers] = useState<any[]>([]);
+  const [scopedUsers, setScopedUsers] = useState<MentionUser[]>([]);
   const [allowAnonymity, setAllowAnonymity] = useState(false);
   const [isAnonymous, setIsAnonymous] = useState(!!post.isAnonymous);
   const [saving, setSaving] = useState(false);
@@ -135,9 +135,9 @@ export default function EditPostModal({
       );
       onSaved({ ...post, ...updated });
       onClose();
-    } catch (e: any) {
+    } catch (e) {
       console.error(e);
-      setSaveError(e?.message ?? "Failed to save. Please try again.");
+      setSaveError(e instanceof Error ? e.message : "Failed to save. Please try again.");
     } finally {
       setSaving(false);
       setUploading(false);
@@ -235,7 +235,7 @@ export default function EditPostModal({
                 </p>
               ) : availableTags.length === 0 ? (
                 <p className="text-xs" style={{ color: "var(--fg-subtle)" }}>
-                  This group's admin hasn't added any tags yet.
+                  This group&apos;s admin hasn&apos;t added any tags yet.
                 </p>
               ) : (
                 <div className="flex flex-wrap gap-1.5">

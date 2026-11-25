@@ -2,171 +2,144 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
-import {
-  getConversation,
-  getMessages,
-  getUserConversations,
-} from "./conversation";
+import { getConversation, getMessages, postMessage, startConversation } from "./conversation";
 import { markConversationRead } from "./chatPrefs";
-import {
-  connectChat,
-  onConnectionStatusChange,
-  onMessage,
-  sendMessage as sendWsMessage,
-} from "@/app/util/websocket";
-import Conversation, { Message } from "@/app/types/conversation";
+import { connectChat, onConnectionStatusChange, onMessage } from "@/app/util/websocket";
+import { Message } from "@/app/types/conversation";
+
+// The websocket only reaches users connected to the same backend instance,
+// so we also poll. Live messages show instantly when the socket works, and
+// within a few seconds when it doesn't.
+const POLL_MS = 4000;
+
+type MessageWithConvo = Message & { conversationId?: number };
+
+function mergeMessages(prev: MessageWithConvo[], incoming: MessageWithConvo[]) {
+  const byId = new Map<number, MessageWithConvo>();
+  [...prev, ...incoming].forEach((m) => byId.set(m.id, m));
+  return [...byId.values()].sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+  );
+}
 
 // Owns loading + real-time updates for one open thread. `conversationId`
-// can be undefined (no conversation exists yet — e.g. first message to a
-// friend); in that case the conversation is created implicitly by the
-// backend on first send, and we pick up its id from the websocket echo.
+// can be undefined (no conversation exists yet, e.g. first message to a
+// friend); it is created on the first send.
 export function useMessages(
   conversationId: string | number | undefined,
   otherUserId: string | undefined,
   onConversationResolved?: (conversationId: string) => void,
 ) {
   const { userId, getToken } = useAuth();
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<MessageWithConvo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
   const mountedRef = useRef(true);
+  const activeIdRef = useRef<string | number | undefined>(conversationId);
+  useEffect(() => {
+    activeIdRef.current = conversationId;
+  }, [conversationId]);
 
+  // Check the conversation exists and we're in it (the server answers 404
+  // otherwise).
   useEffect(() => {
     let cancelled = false;
-
-    async function verifyConversation() {
-      if (!userId) {
-        return;
-      }
+    (async () => {
+      if (!userId) return;
       if (!conversationId) {
         setAuthLoading(false);
         return;
       }
-
       try {
         const token = await getToken();
-        const existingConversation = await getConversation(
-          Number(conversationId),
-          token,
-        );
-
-        if (!existingConversation) {
-          if (!cancelled) {
-            setAuthLoading(false);
-            setError("401");
-          }
-
-          console.log("No existing convo");
-          return;
-        }
-
-        const isParticipant = existingConversation.participants.some(
-          (user: any) => user.participantId === userId,
-        );
-
-        if (!cancelled) {
-          if (!isParticipant) {
-            setError("401");
-          }
-
-          setAuthLoading(false);
-        }
-      } catch (e) {
-        console.error(e);
+        await getConversation(Number(conversationId), token);
+        if (!cancelled) setError(null);
+      } catch {
         if (!cancelled) setError("404");
+      } finally {
+        if (!cancelled) setAuthLoading(false);
       }
-    }
-
-    verifyConversation();
-
+    })();
     return () => {
       cancelled = true;
     };
   }, [conversationId, userId, getToken]);
 
-  // Open (or reuse) the websocket connection as soon as we know who we are.
+  // Open (or reuse) the websocket connection.
   useEffect(() => {
-    if (!userId || error === "401") return;
-    connectChat(userId);
-    onConnectionStatusChange((status: number) => {
-      setConnected(status === WebSocket.OPEN);
-    });
-  }, [userId, error]);
+    if (!userId) return;
+    connectChat(() => getToken());
+    return onConnectionStatusChange((status) => setConnected(status === WebSocket.OPEN));
+  }, [userId, getToken]);
 
-  const load = useCallback(async () => {
-    if (error === "401") {
-      setMessages([]);
-      setLoading(false);
-      return;
-    }
-    if (!conversationId) {
-      setMessages([]);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    try {
-      const token = await getToken();
-      const data = await getMessages(Number(conversationId), token);
-      if (!mountedRef.current) return;
-      setMessages(Array.isArray(data) ? data : []);
-      if (userId) markConversationRead(userId, String(conversationId));
-    } catch (e) {
-      console.error(e);
-      if (mountedRef.current) setError("Couldn't load messages.");
-    } finally {
-      if (mountedRef.current) setLoading(false);
-    }
-  }, [conversationId, userId, error]);
+  const load = useCallback(
+    async (silent = false) => {
+      if (!conversationId || error === "404") {
+        setMessages([]);
+        setLoading(false);
+        return;
+      }
+      if (!silent) setLoading(true);
+      try {
+        const token = await getToken();
+        const data = await getMessages(Number(conversationId), token);
+        if (!mountedRef.current || activeIdRef.current !== conversationId) return;
+        const list: MessageWithConvo[] = Array.isArray(data) ? data : [];
+        setMessages((prev) => (silent ? mergeMessages(prev, list) : list));
+        markConversationRead(conversationId, token);
+      } catch (e) {
+        console.error(e);
+        if (mountedRef.current && !silent) setError("Couldn't load messages.");
+      } finally {
+        if (mountedRef.current && !silent) setLoading(false);
+      }
+    },
+    [conversationId, error, getToken],
+  );
 
   useEffect(() => {
     mountedRef.current = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetches data; state is set after the request returns
     load();
+    const interval = setInterval(() => load(true), POLL_MS);
     return () => {
       mountedRef.current = false;
+      clearInterval(interval);
     };
   }, [load]);
 
-  // Live incoming/outgoing messages pushed over the socket.
+  // Live messages pushed over the socket.
   useEffect(() => {
-    const unsubscribe = onMessage((data: any) => {
-      if (data?.type !== "message") return;
-      const message: Message & { conversationId?: number } = data.message;
-
-      // Belongs to a thread we haven't opened — ignore.
-      const belongsHere =
-        (conversationId &&
-          String((message as any).conversationId) === String(conversationId)) ||
-        (!conversationId &&
-          otherUserId &&
-          (message.senderId === otherUserId || message.senderId === userId));
-      if (!belongsHere) return;
-
-      setMessages((prev) => [...prev, message]);
-
-      if (!conversationId && (message as any).conversationId) {
-        onConversationResolved?.(String((message as any).conversationId));
-      }
-      if (userId) {
-        markConversationRead(
-          userId,
-          String((message as any).conversationId ?? conversationId),
-        );
-      }
+    return onMessage((data) => {
+      if (data.type !== "message") return;
+      const message = data.message as unknown as MessageWithConvo;
+      if (!conversationId || String(message.conversationId) !== String(conversationId)) return;
+      setMessages((prev) => mergeMessages(prev, [message]));
+      getToken().then((t) => markConversationRead(conversationId, t));
     });
-    return unsubscribe;
-  }, [conversationId, otherUserId, userId, onConversationResolved, error]);
+  }, [conversationId, getToken]);
 
   const send = useCallback(
-    (content: string) => {
-      if (error === "401" || !userId || !otherUserId || !content.trim()) {
-        return;
+    async (content: string) => {
+      if (!userId || !otherUserId || !content.trim() || error === "404") return;
+      try {
+        const token = await getToken();
+        let id = conversationId;
+        if (!id) {
+          const convo = await startConversation([otherUserId], token);
+          id = convo.id;
+          onConversationResolved?.(String(id));
+        }
+        const message = await postMessage(Number(id), content.trim(), token);
+        setMessages((prev) => mergeMessages(prev, [message]));
+      } catch (e) {
+        console.error(e);
+        setError("Message not sent. Check your connection and try again.");
       }
-      sendWsMessage(content, userId, otherUserId);
     },
-    [userId, otherUserId],
+    [userId, otherUserId, conversationId, error, getToken, onConversationResolved],
   );
 
   return { messages, loading, error, setError, connected, send, authLoading };

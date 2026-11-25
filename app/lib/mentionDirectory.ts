@@ -1,4 +1,7 @@
 import { getUsers } from "@/app/lib/user";
+import type User from "@/app/types/user";
+import type Friend from "@/app/types/friend";
+import type { ApiGroupMember } from "@/app/types/api";
 
 export type MentionUser = {
   id: string;
@@ -22,10 +25,10 @@ export async function loadMentionDirectory(
   if (cachedUsers && cachedMap) return { users: cachedUsers, map: cachedMap };
   if (!inflight) {
     inflight = getUsers(token)
-      .then((raw: any) => {
+      .then((raw: User[]) => {
         const users: MentionUser[] = (Array.isArray(raw) ? raw : [])
-          .filter((u: any) => u?.userName && u?.id)
-          .map((u: any) => ({
+          .filter((u: User) => u?.userName && u?.id)
+          .map((u: User) => ({
             id: u.id,
             userName: u.userName,
             fName: u.fName,
@@ -65,22 +68,29 @@ export function searchMentionUsers(
 // same way loadMentionDirectory normalises the global user list — this is
 // what lets @mentions be scoped to "people in this group" instead of every
 // user on the platform.
-export function mapMembersToMentionUsers(raw: any[]): MentionUser[] {
+type LooseMember = Partial<ApiGroupMember> & {
+  id?: string;
+  userId?: string;
+  userName?: string;
+  profileImg?: string | null;
+};
+
+export function mapMembersToMentionUsers(raw: LooseMember[]): MentionUser[] {
   return (Array.isArray(raw) ? raw : [])
-    .map((m: any): MentionUser | null => {
+    .map((m: LooseMember): MentionUser | null => {
       const id = m?.memberId ?? m?.id ?? m?.userId ?? m?.member?.id;
       const userName = m?.member?.userName ?? m?.userName;
-      const profileImg = m?.member?.profileImg ?? m?.profileImg;
+      const profileImg = m?.member?.profileImg ?? m?.profileImg ?? undefined;
       return id && userName ? { id, userName, profileImg } : null;
     })
     .filter((u): u is MentionUser => !!u);
 }
 
 // Friend records come back as { status, otherUser: { id, userName, profileImg } }.
-export function mapFriendsToMentionUsers(raw: any[]): MentionUser[] {
+export function mapFriendsToMentionUsers(raw: Partial<Friend>[]): MentionUser[] {
   return (Array.isArray(raw) ? raw : [])
-    .filter((f: any) => !f?.status || f.status === "ACCEPTED")
-    .map((f: any): MentionUser | null => {
+    .filter((f) => !f?.status || f.status === "ACCEPTED")
+    .map((f): MentionUser | null => {
       const u = f?.otherUser;
       return u?.id && u?.userName
         ? { id: u.id, userName: u.userName, profileImg: u.profileImg }

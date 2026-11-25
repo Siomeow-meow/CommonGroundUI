@@ -1,6 +1,6 @@
 const PROXY = "/api/proxy";
 
-export async function getFriends(token: any) {
+export async function getFriends(token: string | null | undefined) {
   const res = await fetch(`${PROXY}/friend`, {
     method: "GET",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -12,7 +12,7 @@ export async function getFriends(token: any) {
   return res.json();
 }
 
-export async function getFriend(id: string, token: any) {
+export async function getFriend(id: string, token: string | null | undefined) {
   const res = await fetch(`${PROXY}/friend/${id}`, {
     method: "GET",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -24,7 +24,7 @@ export async function getFriend(id: string, token: any) {
   return res.json();
 }
 
-export async function getUsersFriends(token: any) {
+export async function getUsersFriends(token: string | null | undefined) {
   const res = await fetch(`${PROXY}/friend`, {
     method: "GET",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -36,7 +36,7 @@ export async function getUsersFriends(token: any) {
   return res.json();
 }
 
-export async function getUserFriendRequests(token: any) {
+export async function getUserFriendRequests(token: string | null | undefined) {
   const res = await fetch(`${PROXY}/friend/request`, {
     method: "GET",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -47,7 +47,7 @@ export async function getUserFriendRequests(token: any) {
 
 export async function sendFriendRequest(
   request: { receiverId: string; status: "PENDING" },
-  token: any,
+  token: string | null | undefined,
 ) {
   try {
     const res = await fetch(`${PROXY}/friend`, {
@@ -69,7 +69,7 @@ export async function sendFriendRequest(
 export async function acceptFriendRequest(
   request: { receiverId: string; status: "ACCEPTED" },
   id: number,
-  token: any,
+  token: string | null | undefined,
 ) {
   try {
     const res = await fetch(`${PROXY}/friend/${id}`, {
@@ -85,7 +85,7 @@ export async function acceptFriendRequest(
   }
 }
 
-export async function deleteFriend(id: number, token: any) {
+export async function deleteFriend(id: number, token: string | null | undefined) {
   try {
     const res = await fetch(`${PROXY}/friend/${id}`, {
       method: "DELETE",
@@ -96,4 +96,13 @@ export async function deleteFriend(id: number, token: any) {
     console.error("DELETE FRIEND ERROR:", err);
     throw err;
   }
+}
+
+/** Requests you sent that are still waiting for an answer. */
+export async function getSentFriendRequests(token: string | null | undefined) {
+  const res = await fetch(`${PROXY}/friend/request?direction=sent`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error("Failed to fetch sent friend requests");
+  return res.json();
 }

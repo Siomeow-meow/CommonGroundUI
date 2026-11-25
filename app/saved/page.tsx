@@ -4,28 +4,14 @@ import { useAuth } from "@clerk/nextjs";
 import PageShell from "@/app/components/PageShell";
 import PostCard from "@/app/components/PostCard";
 import EditPostModal from "@/app/components/EditPostModal";
-import { getPosts, deletePost } from "@/app/lib/post";
+import { deletePost, getSavedPosts, toggleSavePost } from "@/app/lib/post";
 import Post from "@/app/types/post";
 
-// Saved posts are posts the user has bookmarked.
-// Until a dedicated saved endpoint exists, we filter from the feed by a local
-// persisted set (localStorage keyed by userId) so saves survive navigation.
-
-function getSavedIds(userId: string): Set<number> {
-  try {
-    const raw = localStorage.getItem(`saved_posts_${userId}`);
-    return raw ? new Set(JSON.parse(raw)) : new Set();
-  } catch { return new Set(); }
-}
-
-function setSavedIds(userId: string, ids: Set<number>) {
-  try { localStorage.setItem(`saved_posts_${userId}`, JSON.stringify([...ids])); } catch {}
-}
+// Bookmarked posts, stored on the server (GET /saved).
 
 export default function SavedPage() {
   const { getToken, userId } = useAuth();
   const [posts, setPosts] = useState<Post[]>([]);
-  const [savedIds, setSavedIdsState] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(true);
   const [editingPost, setEditingPost] = useState<Post | null>(null);
 
@@ -41,25 +27,24 @@ export default function SavedPage() {
 
   useEffect(() => {
     if (!userId) return;
-    const ids = getSavedIds(userId);
-    setSavedIdsState(ids);
     (async () => {
       try {
         const token = await getToken();
-        const all: Post[] = await getPosts(token);
-        setPosts((Array.isArray(all) ? all : []).filter((p) => ids.has(p.id)));
+        const saved: Post[] = await getSavedPosts(token);
+        setPosts(Array.isArray(saved) ? saved : []);
       } catch (e) { console.error(e); }
       finally { setLoading(false); }
     })();
   }, [userId]);
 
-  function handleUnsave(postId: number) {
-    if (!userId) return;
-    const next = new Set(savedIds);
-    next.delete(postId);
-    setSavedIdsState(next);
-    setSavedIds(userId, next);
-    setPosts((prev) => prev.filter((p) => p.id !== postId));
+  async function handleUnsave(postId: number) {
+    try {
+      const token = await getToken();
+      await toggleSavePost(postId, token);
+      setPosts((prev) => prev.filter((p) => p.id !== postId));
+    } catch (e) {
+      console.error(e);
+    }
   }
 
   return (

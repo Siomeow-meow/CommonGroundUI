@@ -19,6 +19,7 @@ import {
   updateMemberRole,
   inviteMember,
   patchGroup,
+  type PatchGroupRequest,
 } from "@/app/lib/group";
 import { getUsersFriends } from "@/app/lib/friend";
 import { mapMembersToMentionUsers } from "@/app/lib/mentionDirectory";
@@ -28,6 +29,7 @@ import ImageAttachmentStrip from "@/app/components/ImageAttachmentStrip";
 import Group from "@/app/types/group";
 import Post from "@/app/types/post";
 import Friend from "@/app/types/friend";
+import type { ApiGroupMember } from "@/app/types/api";
 
 // ── Tiny icons ────────────────────────────────────────────────────────────────
 const Icons = {
@@ -210,30 +212,8 @@ function Modal({
   );
 }
 
-function safeImg(src: any): string | null {
+function safeImg(src: unknown): string | null {
   return typeof src === "string" && src.trim() ? src.trim() : null;
-}
-
-function normaliseMembers(data: any): Member[] {
-  const list = Array.isArray(data)
-    ? data
-    : Array.isArray(data?.groupMembers)
-      ? data.groupMembers
-      : Array.isArray(data?.members)
-        ? data.members
-        : Array.isArray(data?.data)
-          ? data.data
-          : [];
-  return list
-    .map((m: any) => {
-      // Many possible shapes from the API
-      const id = m.userId ?? m.id ?? m.user?.id ?? "";
-      const userName =
-        m.user?.userName ?? m.userName ?? m.username ?? "unknown";
-      const profileImg = m.user?.profileImg ?? m.profileImg ?? m.avatar ?? "";
-      return { id, userName, profileImg };
-    })
-    .filter((m: Member) => m.id);
 }
 
 export default function GroupDetailPage() {
@@ -244,7 +224,7 @@ export default function GroupDetailPage() {
 
   const [group, setGroup] = useState<Group | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
-  const [members, setMembers] = useState<any[]>([]);
+  const [members, setMembers] = useState<ApiGroupMember[]>([]);
   const [friends, setFriends] = useState<Friend[]>([]);
   const [loading, setLoading] = useState(true);
   const [joining, setJoining] = useState(false);
@@ -342,24 +322,18 @@ export default function GroupDetailPage() {
     try {
       const token = await getToken();
       const raw = await getGroupMembers(id, token);
-      console.log("RAW MEMBERS RESPONSE:", JSON.stringify(raw).slice(0, 500));
-      // const normalised = normaliseMembers(raw);
-      // console.log("NORMALISED MEMBERS:", normalised);
-      setMembers(raw);
+      setMembers(Array.isArray(raw) ? raw : []);
       setMembersLoaded(true);
     } catch (e) {
       console.error("loadMembers error:", e);
     }
   }
 
-  useEffect(() => {
-    if (showMembersModal) loadMembers();
-  }, [showMembersModal]);
-
   // Also load members up front (not gated on the Members modal being open) —
   // the post composer's @mention list needs to be scoped to group members,
   // so it needs this list ready as soon as the group page mounts.
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetches data; state is set after the request returns
     if (id) loadMembers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
@@ -418,7 +392,7 @@ export default function GroupDetailPage() {
     setSSaveError(null);
     try {
       const token = await getToken();
-      const payload: any = {
+      const payload: PatchGroupRequest = {
         groupName: sName.trim() || group.groupName,
         description: sDesc.trim(),
         groupThemes: sThemes,
@@ -473,10 +447,10 @@ export default function GroupDetailPage() {
           : g,
       );
       setShowSettings(false);
-    } catch (e: any) {
+    } catch (e) {
       console.error(e);
       setSSaveError(
-        e?.message
+        e instanceof Error && e.message
           ? `Couldn't save changes: ${e.message}`
           : "Couldn't save changes. Please try again.",
       );
@@ -509,9 +483,11 @@ export default function GroupDetailPage() {
           : g,
       );
       if (group.isFollowed && userId)
-        setMembers((prev) => prev.filter((m) => m.id !== userId));
+        setMembers((prev) => prev.filter((m) => m.memberId !== userId));
     } catch (e) {
       console.error(e);
+      // e.g. the only admin trying to leave a group that still has members
+      window.alert(e instanceof Error ? e.message : "Couldn't update membership");
     } finally {
       setJoining(false);
     }
@@ -1053,7 +1029,7 @@ export default function GroupDetailPage() {
                       </span>
                       {m.member?.profileImg && (
                         <img
-                          src={m.member.profileImg}
+                          src={m.member?.profileImg}
                           alt=""
                           className="absolute inset-0 w-full h-full object-cover"
                           onError={(e) => {
@@ -1258,7 +1234,7 @@ export default function GroupDetailPage() {
                     style={{ color: "var(--fg-subtle)" }}
                   >
                     Lets members post without revealing their name — shown
-                    as "Guest" instead.
+                    as &ldquo;Guest&rdquo; instead.
                   </p>
                 </div>
                 <Switch
@@ -1294,7 +1270,7 @@ export default function GroupDetailPage() {
             className="text-sm flex-1 select-none"
             style={{ color: "var(--fg-muted)" }}
           >
-            What's on your mind?
+            What&apos;s on your mind?
           </span>
           <div className="flex items-center gap-2">
             <span
@@ -1639,11 +1615,11 @@ export default function GroupDetailPage() {
                         }}
                       >
                         <span>
-                          {(m.member.userName ?? "?").slice(0, 2).toUpperCase()}
+                          {(m.member?.userName ?? "?").slice(0, 2).toUpperCase()}
                         </span>
-                        {m.member.profileImg && (
+                        {m.member?.profileImg && (
                           <img
-                            src={m.member.profileImg}
+                            src={m.member?.profileImg}
                             alt=""
                             className="absolute inset-0 w-full h-full object-cover"
                             onError={(e) => {
@@ -1661,7 +1637,7 @@ export default function GroupDetailPage() {
                         className="text-sm font-medium"
                         style={{ color: "var(--fg)" }}
                       >
-                        @{m.member.userName}
+                        @{m.member?.userName}
                       </span>
                       {isMe && (
                         <span
@@ -1674,7 +1650,7 @@ export default function GroupDetailPage() {
                     </a>
                     {group.isAdmin && !isMe && (
                       <select
-                        value={m.role ?? "MEMBER"}
+                        value={(m.role ?? "member").toLowerCase()}
                         onChange={(e) =>
                           handleRoleChange(m.memberId, e.target.value)
                         }
@@ -1686,8 +1662,8 @@ export default function GroupDetailPage() {
                           border: "1px solid var(--border)",
                         }}
                       >
-                        <option value="MEMBER">Member</option>
-                        <option value="ADMIN">Admin</option>
+                        <option value="member">Member</option>
+                        <option value="admin">Admin</option>
                         {/* <option value="MODERATOR">Moderator</option> */}
                       </select>
                     )}

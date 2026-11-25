@@ -1,5 +1,5 @@
-// All requests go through /api/proxy to avoid CORS — the proxy forwards to
-// https://probable-guacamole-alpha.vercel.app on the server side.
+// All requests go through /api/proxy to avoid CORS; the proxy forwards to
+// BACKEND_URL on the server side (see app/lib/backend.ts).
 const PROXY = "/api/proxy";
 
 export type PatchGroupRequest = {
@@ -11,7 +11,7 @@ export type PatchGroupRequest = {
   allowAnonymity?: boolean;
 };
 
-export async function getGroups(token: any) {
+export async function getGroups(token: string | null | undefined) {
   const res = await fetch(`${PROXY}/group`, {
     method: "GET",
     headers: {
@@ -23,7 +23,7 @@ export async function getGroups(token: any) {
   return res.json();
 }
 
-export async function getGroup(id: string, token: any) {
+export async function getGroup(id: string, token: string | null | undefined) {
   const res = await fetch(`${PROXY}/group/${id}`, {
     method: "GET",
     headers: {
@@ -39,7 +39,7 @@ export async function getGroup(id: string, token: any) {
   return res.json();
 }
 
-export async function getUserMemberships(id: string, token: any) {
+export async function getUserMemberships(id: string, token: string | null | undefined) {
   const res = await fetch(`${PROXY}/group?memberId=${id}`, {
     method: "GET",
     headers: {
@@ -62,7 +62,7 @@ export async function createGroup(
     groupImg: string;
     bannerImg: string;
   },
-  token: any,
+  token: string | null | undefined,
 ) {
   try {
     const res = await fetch(`${PROXY}/group`, {
@@ -73,6 +73,10 @@ export async function createGroup(
       },
       body: JSON.stringify(request),
     });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new Error(body?.error ?? "Failed to create group");
+    }
     return res.json();
   } catch (err) {
     console.error("GROUP POST ERROR:", err);
@@ -90,7 +94,7 @@ export async function patchGroup(
     allowAnonymity?: boolean;
   },
   id: number,
-  token: any,
+  token: string | null | undefined,
 ) {
   try {
     const res = await fetch(`${PROXY}/group/${id}`, {
@@ -115,7 +119,7 @@ export async function patchGroup(
 
 export async function followGroup(
   request: { role: string },
-  token: any,
+  token: string | null | undefined,
   id: number,
 ) {
   try {
@@ -127,6 +131,10 @@ export async function followGroup(
       },
       body: JSON.stringify(request),
     });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new Error(body?.error ?? "Failed to update membership");
+    }
     return res.json();
   } catch (err) {
     console.error("FOLLOW GROUP ERROR:", err);
@@ -134,7 +142,7 @@ export async function followGroup(
   }
 }
 
-export async function getGroupPosts(id: string, token: any) {
+export async function getGroupPosts(id: string, token: string | null | undefined) {
   const res = await fetch(`${PROXY}/post?groupId=${id}`, {
     method: "GET",
     headers: {
@@ -150,7 +158,7 @@ export async function getGroupPosts(id: string, token: any) {
   return res.json();
 }
 
-export async function deleteGroup(id: number, token: any) {
+export async function deleteGroup(id: number, token: string | null | undefined) {
   try {
     const res = await fetch(`${PROXY}/group/${id}`, {
       method: "DELETE",
@@ -159,6 +167,10 @@ export async function deleteGroup(id: number, token: any) {
         Authorization: `Bearer ${token}`,
       },
     });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new Error(body?.error ?? `Request failed (${res.status})`);
+    }
     return res.json();
   } catch (err) {
     console.error("DELETE GROUP ERROR:", err);
@@ -166,10 +178,9 @@ export async function deleteGroup(id: number, token: any) {
   }
 }
 
-export async function getGroupMembers(id: string, token: any) {
+export async function getGroupMembers(id: string, token: string | null | undefined) {
   try {
-    console.log("Fetching group members for group ID:", id);
-    const res = await fetch(`${PROXY}/group/${id}/member?groupId=${id}`, {
+    const res = await fetch(`${PROXY}/group/${id}/member`, {
       method: "GET",
       headers: {
         "Content-Type": "application/json",
@@ -182,7 +193,6 @@ export async function getGroupMembers(id: string, token: any) {
       );
       return [];
     }
-    console.log("getGroupMembers response:", res);
     return res.json();
   } catch (err) {
     console.warn("getGroupMembers network error:", err);
@@ -193,7 +203,7 @@ export async function getGroupMembers(id: string, token: any) {
 export async function kickMember(
   groupId: number,
   memberId: string,
-  token: any,
+  token: string | null | undefined,
 ) {
   try {
     const res = await fetch(`${PROXY}/group/${groupId}/member/${memberId}`, {
@@ -203,6 +213,10 @@ export async function kickMember(
         Authorization: `Bearer ${token}`,
       },
     });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new Error(body?.error ?? `Request failed (${res.status})`);
+    }
     return res.json();
   } catch (err) {
     console.error("KICK MEMBER ERROR:", err);
@@ -214,7 +228,7 @@ export async function updateMemberRole(
   groupId: number,
   memberId: string,
   role: string,
-  token: any,
+  token: string | null | undefined,
 ) {
   try {
     const res = await fetch(`${PROXY}/group/${groupId}/member/${memberId}`, {
@@ -238,7 +252,7 @@ export async function updateMemberRole(
 export async function inviteMember(
   groupId: number,
   userId: string,
-  token: any,
+  token: string | null | undefined,
 ) {
   try {
     const res = await fetch(`${PROXY}/group/${groupId}/member`, {
@@ -247,8 +261,12 @@ export async function inviteMember(
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ userId, role: "MEMBER" }),
+      body: JSON.stringify({ userId }),
     });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new Error(body?.error ?? `Request failed (${res.status})`);
+    }
     return res.json();
   } catch (err) {
     console.error("INVITE MEMBER ERROR:", err);

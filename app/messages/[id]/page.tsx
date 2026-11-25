@@ -1,5 +1,5 @@
 "use client";
-import { useParams, useSearchParams, useRouter } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import MessagesShell from "@/app/components/messages/MessagesShell";
 
 export default function ConversationPage() {

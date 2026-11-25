@@ -9,8 +9,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-
-const BACKEND = "https://probable-guacamole-alpha.vercel.app";
+import { BACKEND_URL as BACKEND } from "@/app/lib/backend";
 
 async function handler(
   req: NextRequest,
@@ -23,10 +22,12 @@ async function handler(
   const search = req.nextUrl.search ?? "";
   const targetUrl = `${BACKEND}/api/${slug}${search}`;
 
-  // Forward headers, but strip host so the backend sees its own host
   const headers = new Headers();
   req.headers.forEach((value, key) => {
-    if (key.toLowerCase() !== "host") {
+    const k = key.toLowerCase();
+    // Strip host so the backend sees its own host, and hop-by-hop headers
+    // that fetch() sets itself.
+    if (!["host", "connection", "content-length"].includes(k)) {
       headers.set(key, value);
     }
   });

@@ -1,94 +1,85 @@
-const api = process.env.NEXT_PUBLIC_API_WEBSOCKET;
-let socket: WebSocket;
-let reconnectDelay = 1000;
-let listeners: ((status: number) => void)[] = [];
-let messageListeners: ((data: any) => void)[] = [];
+import { WEBSOCKET_URL } from "@/app/lib/backend";
 
-function connect(userId: string) {
+/**
+ * Live chat socket. It only delivers incoming messages; sending goes through
+ * the REST API (see useMessages), so a message is saved even if the socket
+ * is down. The socket authenticates with the Clerk session token.
+ */
+export type SocketEvent =
+  | { type: "authenticated" }
+  | { type: "error"; message: string }
+  | { type: "message"; message: { id: number; conversationId: number; senderId: string } & Record<string, unknown> };
+
+type TokenProvider = () => Promise<string | null>;
+
+let socket: WebSocket | null = null;
+let getToken: TokenProvider | null = null;
+let reconnectDelay = 1000;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+const statusListeners = new Set<(status: number) => void>();
+let messageListeners: ((data: SocketEvent) => void)[] = [];
+
+function notify() {
+  statusListeners.forEach((l) => l(socket?.readyState ?? WebSocket.CLOSED));
+}
+
+function connect() {
   if (
     socket &&
-    (socket.readyState === WebSocket.OPEN ||
-      socket.readyState === WebSocket.CONNECTING)
+    (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)
   ) {
     return;
   }
+  if (!getToken) return;
 
-  socket = new WebSocket(`wss://probable-guacamole-alpha.vercel.app/api/ws`);
+  const ws = new WebSocket(WEBSOCKET_URL);
+  socket = ws;
 
-  socket.addEventListener("open", () => {
-    socket.send(
-      JSON.stringify({
-        type: "authenticate",
-        userId,
-      }),
-    );
+  ws.addEventListener("open", async () => {
+    const token = await getToken?.().catch(() => null);
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "authenticate", token }));
+    }
     reconnectDelay = 1000;
     notify();
   });
 
-  socket.addEventListener("message", (event) => {
-    const data = JSON.parse(event.data);
-
-    messageListeners.forEach((listener) => {
-      listener(data);
-    });
+  ws.addEventListener("message", (event) => {
+    let data: SocketEvent;
+    try {
+      data = JSON.parse(event.data);
+    } catch {
+      return;
+    }
+    messageListeners.forEach((listener) => listener(data));
   });
 
-  socket.addEventListener("close", () => {
-    setTimeout(() => connect(userId), reconnectDelay);
-    reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+  ws.addEventListener("close", () => {
     notify();
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(connect, reconnectDelay);
+    reconnectDelay = Math.min(reconnectDelay * 2, 30000);
   });
 
-  socket.addEventListener("error", notify);
+  ws.addEventListener("error", notify);
 }
 
-export function sendMessage(
-  content: string,
-  senderId: string,
-  receiverId: string,
-) {
-  const payload = JSON.stringify({
-    type: "message",
-    content,
-    senderId,
-    receiverId,
-  });
-
-  console.log(payload);
-  if (socket?.readyState === WebSocket.OPEN) {
-    socket.send(payload);
-    return;
-  }
-
-  connectChat(senderId);
-
-  socket?.addEventListener(
-    "open",
-    () => {
-      socket.send(payload);
-    },
-    { once: true },
-  );
+export function connectChat(tokenProvider: TokenProvider) {
+  getToken = tokenProvider;
+  connect();
 }
 
-export function connectChat(userId: string) {
-  connect(userId);
-}
-
+/** Subscribes to socket open/close changes. Returns an unsubscribe function. */
 export function onConnectionStatusChange(listener: (status: number) => void) {
-  listeners.push(listener);
+  statusListeners.add(listener);
+  listener(socket?.readyState ?? WebSocket.CLOSED);
+  return () => {
+    statusListeners.delete(listener);
+  };
 }
 
-function notify() {
-  listeners.forEach((l) => l(socket?.readyState ?? WebSocket.CLOSED));
-}
-
-export function onMessage(listener: (data: any) => void) {
+export function onMessage(listener: (data: SocketEvent) => void) {
   messageListeners.push(listener);
-
-  console.log("Listeners after adding:", messageListeners.length);
-
   return () => {
     messageListeners = messageListeners.filter((l) => l !== listener);
   };
