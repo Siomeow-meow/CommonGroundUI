@@ -71,6 +71,7 @@ export default function GroupsPage() {
   const [bannerHover, setBannerHover] = useState(false);
   const [iconHover, setIconHover] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
 
@@ -113,6 +114,7 @@ export default function GroupsPage() {
     setNewGroup({ groupName: "", description: "" });
     setGroupImg(null);
     setBannerImg(null);
+    setCreateError(null);
   }
 
   function handleImageFile(
@@ -127,12 +129,13 @@ export default function GroupsPage() {
   async function handleCreate() {
     if (!newGroup.groupName.trim()) return;
     setSaving(true);
+    setCreateError(null);
     try {
       if (!groupImg) {
-        throw new Error("No image selected");
+        throw new Error("Please add a group icon (click the icon square)");
       }
       if (!bannerImg) {
-        throw new Error("No banner selected");
+        throw new Error("Please add a banner image (click the banner area)");
       }
 
       const token = await getToken();
@@ -166,6 +169,9 @@ export default function GroupsPage() {
       handleCancel();
     } catch (e) {
       console.error(e);
+      setCreateError(
+        e instanceof Error ? e.message : "Failed to create group",
+      );
     } finally {
       setSaving(false);
     }
@@ -393,6 +399,11 @@ export default function GroupsPage() {
                   Cancel
                 </button>
               </div>
+              {createError && (
+                <p role="alert" className="text-xs" style={{ color: "#dc2626" }}>
+                  {createError}
+                </p>
+              )}
             </div>
           </div>
         </div>
